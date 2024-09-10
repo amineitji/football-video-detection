@@ -1,0 +1,5 @@
+train: data/frames  # Chemin vers les images d'entraînement
+val: data/frames    # Vous pouvez aussi séparer un ensemble de validation
+
+nc: 2  # Nombre de classes : team_1 et team_2
+names: ['team_1', 'team_2']  # Noms des sous-classes
