@@ -2,177 +2,137 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from sklearn.cluster import KMeans
-import os
-
-# Créer les dossiers pour les frames et les labels s'ils n'existent pas
-if not os.path.exists('data/frames'):
-    os.makedirs('data/frames')
-if not os.path.exists('data/labels'):
-    os.makedirs('data/labels')
+from collections import defaultdict
 
 # Charger le modèle YOLOv8
 model = YOLO("yolov8n.pt")
 
 # Chemin de la vidéo
-video_path = 'data/videos/test.mp4'  # Remplacer par le chemin de votre vidéo
+video_path = 'data/videos/test.mp4'
+output_video_path = 'data/videos/output_with_teams.mp4'
 cap = cv2.VideoCapture(video_path)
-
-# Obtenir les informations de la vidéo pour créer une vidéo de sortie
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-fps = int(cap.get(cv2.CAP_PROP_FPS))
-frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-# Sortie vidéo
-output_video = cv2.VideoWriter('data/output_video.mp4', fourcc, fps, (frame_width, frame_height))
 
 # Classe "person" pour YOLO
 CLASS_ID_PERSON = 0
 
-# Dictionnaire pour stocker les équipes attribuées par personne (utilisé pour garder les joueurs dans la même équipe)
-player_teams = {}
+# Tracker les personnes et leur équipe
+person_team_tracker = defaultdict(lambda: {"color": None, "team": None})
 
-def get_dominant_color_no_green(image, k=5):
-    """Applique K-Means pour obtenir la couleur dominante en supprimant le vert du classificateur et en utilisant plusieurs clusters."""
-    # Convertir l'image de BGR à HSV pour identifier la couleur verte
+# Fonction pour appliquer K-Means en excluant la couleur verte et noire
+def get_dominant_color_no_green_or_black(image, k=2, threshold=40):
+    # Convertir l'image en HSV pour isoler la couleur verte
     hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-
-    # Définir les limites pour la couleur verte en HSV
-    lower_green = np.array([35, 40, 40])  # Limite inférieure pour la couleur verte
-    upper_green = np.array([85, 255, 255])  # Limite supérieure pour la couleur verte
-
+    
+    # Définir les limites pour la couleur verte
+    lower_green = np.array([35, 40, 40])  # Limite inférieure
+    upper_green = np.array([85, 255, 255])  # Limite supérieure
+    
     # Créer un masque pour filtrer les pixels verts
     green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
-
-    # Remplacer les pixels verts par du noir (ou toute autre couleur neutre)
-    image[green_mask != 0] = [0, 0, 0]  # Remplacement des pixels verts par du noir
+    
+    # Remplacer les pixels verts par du noir
+    image[green_mask != 0] = [0, 0, 0] 
 
     # Redimensionner l'image pour accélérer le traitement
     image_resized = cv2.resize(image, (50, 50))
-
-    # Réorganiser l'image en un tableau 2D de pixels (longueur * largeur, 3)
+    
+    # Réorganiser l'image en un tableau 2D de pixels
     pixel_values = image_resized.reshape((-1, 3))
     pixel_values = np.float32(pixel_values)
-
-    # Appliquer K-Means avec plusieurs clusters pour capter plus de nuances
+    
+    # Appliquer K-Means
     kmeans = KMeans(n_clusters=k, random_state=0)
     kmeans.fit(pixel_values)
 
-    # Trouver la couleur dominante (la plus fréquente)
-    dominant_colors = kmeans.cluster_centers_  # Prendre les couleurs dominantes de tous les clusters
+    # Filtrer les couleurs proches du noir
+    valid_colors = [center for center in kmeans.cluster_centers_ if np.linalg.norm(center) > threshold]
+
+    # Si aucune couleur valide, retourner un gris par défaut
+    dominant_color = valid_colors[0] if valid_colors else np.array([128, 128, 128])
     
-    return dominant_colors
+    return dominant_color
 
-def assign_team(player_id, dominant_colors, team_assignment, team_1_color, team_2_color):
-    """Attribue une équipe à un joueur en fonction des couleurs dominantes."""
-    if player_id not in player_teams:
-        # Utiliser une métrique pour évaluer la proximité des couleurs dominantes avec les couleurs des équipes
-        distances_to_team_1 = np.linalg.norm(dominant_colors - team_1_color, axis=1)
-        distances_to_team_2 = np.linalg.norm(dominant_colors - team_2_color, axis=1)
-        
-        # La distance la plus faible indique à quelle équipe le joueur appartient
-        if np.min(distances_to_team_1) < np.min(distances_to_team_2):
-            player_teams[player_id] = 0  # team_1
-        else:
-            player_teams[player_id] = 1  # team_2
-    return player_teams[player_id]
+# Réouvrir la vidéo pour analyse et enregistrement
+cap = cv2.VideoCapture(video_path)
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = int(cap.get(cv2.CAP_PROP_FPS))
 
-# Couleurs de référence pour les équipes (par exemple, rouge pour team_1, bleu pour team_2)
-team_1_color = np.array([220, 20, 60])  # Rouge
-team_2_color = np.array([30, 144, 255])  # Bleu
+# Définir le writer pour la vidéo de sortie
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
 
-# Initialisation des variables pour stocker les couleurs dominantes et boîtes englobantes
-dominant_colors = []
-person_boxes = []
-player_ids = []  # Liste des IDs des joueurs
-
-frame_id = 0  # Pour compter les frames
+frame_id = 0
+team_labels = {0: "Team_1", 1: "Team_2"}
+team_colors = {0: (0, 0, 255), 1: (255, 0, 0)}
 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
-    
-    # Créer une copie de la frame pour effacer les annotations de la frame précédente
-    frame_copy = frame.copy()  # IMPORTANT: on réinitialise la frame ici
-    
-    # Obtenir les dimensions de la frame
-    height, width, _ = frame.shape
-    
-    # Utiliser YOLO pour faire des prédictions sur la frame
+
+    # YOLO prédictions pour la frame
     results = model.predict(frame, imgsz=640, conf=0.4)
-    
-    # Parcourir les détections de YOLO
-    for result in results[0].boxes:
+
+    # Liste pour les boxes et couleurs dominantes
+    person_boxes = []
+    frame_dominant_colors = []
+
+    for idx, result in enumerate(results[0].boxes):
         class_id = int(result.cls)
-        if class_id == CLASS_ID_PERSON:  # Ne garder que les personnes
+        if class_id == CLASS_ID_PERSON:
             x1, y1, x2, y2 = map(int, result.xyxy[0])
-            
-            # Extraire la région correspondant à la personne
+            person_boxes.append([x1, y1, x2, y2])
+
+            # Extraire la région de la personne
             roi = frame[y1:y2, x1:x2]
 
-            # Trouver les couleurs dominantes de la personne détectée en supprimant le vert
-            dominant_colors = get_dominant_color_no_green(roi)
+            # Couleur dominante
+            dominant_color = get_dominant_color_no_green_or_black(roi)
 
-            # Ajouter la couleur dominante et la boîte englobante à la liste
-            person_boxes.append((x1, y1, x2, y2))
-            player_ids.append(result.id)  # Utiliser l'ID unique attribué par YOLO
+            # Stocker la couleur
+            frame_dominant_colors.append(dominant_color)
 
-    # Si suffisamment de personnes sont détectées, effectuer le clustering
-    if len(player_ids) >= 2:  # Au moins deux personnes doivent être détectées
+    if frame_dominant_colors:
+        # Vérifier les couleurs et assigner aux équipes en fonction des frames précédentes
+        for idx, (x1, y1, x2, y2) in enumerate(person_boxes):
+            dominant_color = frame_dominant_colors[idx]
+            best_match = None
+            min_distance = float('inf')
 
-        # Afficher les résultats sur la vidéo
-        for i, (x1, y1, x2, y2) in enumerate(person_boxes):
-            player_id = player_ids[i]
-            assigned_team = assign_team(player_id, dominant_colors, None, team_1_color, team_2_color)
+            # Chercher une personne proche en couleur dans les frames précédentes
+            for person_id, info in person_team_tracker.items():
+                color_dist = np.linalg.norm(dominant_color - info['color'])
+                if color_dist < min_distance:
+                    best_match = person_id
+                    min_distance = color_dist
 
-            # Attribuer l'équipe basée sur l'historique
-            team = 'team_1' if assigned_team == 0 else 'team_2'
+            # Si un match est trouvé, assigner la même équipe
+            if best_match is not None and min_distance < 50:  # seuil pour une correspondance de couleur
+                team_idx = person_team_tracker[best_match]['team']
+            else:
+                # Sinon, appliquer K-Means pour déterminer l'équipe
+                if frame_id == 0:
+                    kmeans_teams = KMeans(n_clusters=2, random_state=0)
+                    kmeans_teams.fit(frame_dominant_colors)
+                    team_idx = kmeans_teams.labels_[idx]
+                else:
+                    team_idx = 0 if len(frame_dominant_colors) % 2 == 0 else 1
 
-            # Dessiner les boîtes englobantes et l'équipe sur la frame
-            color = (0, 255, 0) if team == 'team_1' else (0, 0, 255)
-            cv2.rectangle(frame_copy, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame_copy, f'{team}', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+                # Enregistrer cette personne dans le tracker
+                person_team_tracker[frame_id] = {"color": dominant_color, "team": team_idx}
 
-            # Sauvegarder l'annotation dans data/labels
-            label_file_path = f"data/labels/frame_{frame_id}.txt"
-            with open(label_file_path, 'a') as f:
-                # Convertir les coordonnées en format YOLO (normalisé)
-                x_center = (x1 + x2) / 2 / width
-                y_center = (y1 + y2) / 2 / height
-                bbox_width = (x2 - x1) / width
-                bbox_height = (y2 - y1) / height
+            # Dessiner la personne avec son label d'équipe
+            team = team_labels[team_idx]
+            team_color = team_colors[team_idx]
+            cv2.putText(frame, team, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, team_color, 2, cv2.LINE_AA)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), team_color, 2)
 
-                # ID de la classe en fonction de l'équipe
-                class_id = 0 if team == "team_1" else 1
-
-                # Sauvegarder l'annotation
-                label = f"{class_id} {x_center} {y_center} {bbox_width} {bbox_height}\n"
-                f.write(label)
-
-        # Sauvegarder la frame avec les annotations dans data/frames
-        frame_file_path = f"data/frames/frame_{frame_id}.jpg"
-        cv2.imwrite(frame_file_path, frame_copy)
-
-        # Ajouter la frame annotée à la vidéo de sortie
-        output_video.write(frame_copy)
-
-    # Afficher la vidéo avec les équipes détectées en temps réel
-    cv2.imshow('YOLOv8 + Clustering Teams', frame_copy)
-
-    # Sortir de la boucle si la touche 'q' est pressée
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    # Écrire la frame dans le fichier de sortie
+    out.write(frame)
 
     frame_id += 1
 
-    # Réinitialiser les listes pour éviter l'accumulation des données
-    person_boxes.clear()
-    player_ids.clear()
-
-# Libérer la vidéo et fermer les fenêtres
 cap.release()
-output_video.release()
-cv2.destroyAllWindows()
-
-print("Clustering des équipes terminé, les frames et les annotations ont été enregistrées, et la vidéo de sortie a été générée.")
+out.release()
+print(f"[INFO] Vidéo complète enregistrée dans '{output_video_path}' avec les labels d'équipe.")
