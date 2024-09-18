@@ -11,13 +11,16 @@ class TeamTracker:
         self.num_teams = num_teams
 
     def get_dominant_color_no_green_or_black(self, image, k=2, threshold=40):
-        hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+        copy = image.copy()
+        
+        hsv_image = cv2.cvtColor(copy, cv2.COLOR_BGR2HSV)
         lower_green = np.array([35, 40, 40])
         upper_green = np.array([85, 255, 255])
         green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
-        image[green_mask != 0] = [0, 0, 0]
+        copy[green_mask != 0] = [0, 0, 0]
 
-        image_resized = cv2.resize(image, (50, 50))
+        image_resized = cv2.resize(copy, (50, 50))
         pixel_values = image_resized.reshape((-1, 3))
         pixel_values = np.float32(pixel_values)
 
