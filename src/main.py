@@ -1,12 +1,9 @@
-from VideoProcessor import VideoProcessor
-from field_line_detector import FieldLineDetector
+from team_tracker import TeamTracker
 
-if __name__ == "__main__":
-    # Détection des joueurs avec les équipes
-    video_path = 'data/videos/test.mp4'
-    output_video_path = 'data/videos/output_with_teams.mp4'
+def main():
+    # Initialiser le suivi des équipes avec le modèle YOLO personnalisé et la vidéo de football
+    team_tracker = TeamTracker(model_path='yolov10n.pt', video_path='data/videos/test_1.mp4')
+    team_tracker.track_teams()
 
-    video_processor = VideoProcessor(video_path, output_video_path)
-    video_processor.process_video()
-
-    print(f"[INFO] Vidéo complète enregistrée dans '{output_video_path}' avec les labels d'équipe.")
+if __name__ == '__main__':
+    main()

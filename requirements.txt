@@ -1,4 +1,3 @@
 ultralytics==8.2.90 
 opencv-python==4.10.0.84 
-labelImg==1.8.6 
-simple-online-realtime-tracking==0.3 
+scikit-learn==1.5.2 

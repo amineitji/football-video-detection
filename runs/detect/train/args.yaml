@@ -1,7 +1,7 @@
 task: detect
 mode: train
 model: yolov10n.pt
-data: data/football.yaml
+data: config/ball_data.yaml
 epochs: 100
 time: null
 patience: 100
@@ -103,4 +103,4 @@ erasing: 0.4
 crop_fraction: 1.0
 cfg: null
 tracker: botsort.yaml
-save_dir: /home/amine/Bureau/football-video-detection/runs/detect/train
+save_dir: /home/amine/Bureau/TARBOUCH DATA/football-video-detection/runs/detect/train

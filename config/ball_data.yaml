@@ -1,0 +1,5 @@
+train: /home/amine/Bureau/TARBOUCH DATA/football-video-detection/data/ball_dataset/images/train
+val: /home/amine/Bureau/TARBOUCH DATA/football-video-detection/data/ball_dataset/images/val
+
+nc: 1  # Nombre de classes (1 pour le ballon uniquement)
+names: ['ball']
