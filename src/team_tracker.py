@@ -1,5 +1,8 @@
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
+import os
+import random
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from detection_football import FootballDetection
@@ -46,7 +49,48 @@ class TeamTracker(FootballDetection):
         transformed_data = pca.fit_transform(combined_color_data)
         kmeans = KMeans(n_clusters=2, random_state=42)
         labels = kmeans.fit_predict(transformed_data)
-        
+
+        os.makedirs('data/plots', exist_ok=True)
+        plt.figure(figsize=(6, 5))
+        plt.scatter(transformed_data[:, 0], transformed_data[:, 1], c=labels, cmap='bwr', s=10)
+        plt.title("KMeans sur toutes les frames")
+        plt.xlabel("PCA 1")
+        plt.ylabel("PCA 2")
+        plt.grid(True)
+        plt.savefig('data/plots/global_kmeans_clusters.jpg')
+        plt.close()
+
+        random_index = random.randint(0, len(self.all_color_data) - 1)
+        sample_colors = np.array(self.all_color_data[random_index])
+        sample_boxes = self.all_player_boxes[random_index]
+        sample_labels = labels[sum(len(fc) for fc in self.all_color_data[:random_index]):
+                               sum(len(fc) for fc in self.all_color_data[:random_index + 1])]
+        sample_transformed = pca.transform(sample_colors)
+
+        cap = cv2.VideoCapture(self.video_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, random_index)
+        ret, frame = cap.read()
+        cap.release()
+
+        for i in range(len(sample_boxes)):
+            box = sample_boxes[i]
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            color = (255, 0, 0) if sample_labels[i] == 0 else (0, 0, 255)
+            label = f'Team_{sample_labels[i] + 1}'
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        cv2.imwrite('data/plots/sample_frame_kmeans.jpg', frame)
+
+        plt.figure(figsize=(6, 5))
+        plt.scatter(sample_transformed[:, 0], sample_transformed[:, 1], c=sample_labels, cmap='bwr', s=30)
+        plt.title(f"KMeans sur la frame #{random_index}")
+        plt.xlabel("PCA 1")
+        plt.ylabel("PCA 2")
+        plt.grid(True)
+        plt.savefig('data/plots/sample_kmeans_scatter.jpg')
+        plt.close()
+
         labels_per_frame = []
         start = 0
         for frame_colors in self.all_color_data:
@@ -179,14 +223,14 @@ class TeamTracker(FootballDetection):
                 team_label = f"Team_{labels[i] + 1}"
                 cv2.putText(frame, team_label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, team_color, 2)
 
-            ball_position = self.detect_ball(frame, out_ball_filter)
-            if ball_position:
-                x, y, radius = ball_position
-                cv2.circle(frame, (x, y), radius, (0, 255, 255), 2)
-                cv2.putText(frame, 'Ball', (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            #ball_position = self.detect_ball(frame, out_ball_filter)
+            #if ball_position:
+            #    x, y, radius = ball_position
+            #    cv2.circle(frame, (x, y), radius, (0, 255, 255), 2)
+            #    cv2.putText(frame, 'Ball', (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
-            line_frame = self.detect_field_lines(frame)
-            frame = cv2.addWeighted(frame, 0.8, line_frame, 0.5, 0)
+            #line_frame = self.detect_field_lines(frame)
+            #frame = cv2.addWeighted(frame, 0.8, line_frame, 0.5, 0)
 
             out_final.write(frame)
             frame_index += 1
